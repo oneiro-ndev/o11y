@@ -61,7 +61,10 @@ DecimalVal <- [0-9]+
 HexVal <- [0-9A-Fa-f]+
 	{
 		x, err := strconv.ParseUint(string(c.text), 10, 64)
-		return x, err
+		if err != nil {
+			return string(c.text), nil
+		}
+		return x, nil
 	}
 ID <- HexVal (':' HexVal ':' HexVal)? { return string(c.text), nil }
 Timestamp <-
