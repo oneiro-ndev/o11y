@@ -117,6 +117,12 @@ func (h *honeycombWriter) Write(b []byte) (int, error) {
 		} else {
 			data["parseError"] = err.Error()
 		}
+	} else {
+		keys := ""
+		for k := range data {
+			keys += k + "\n"
+		}
+		data["keys"] = keys
 	}
 
 	evt := libhoney.NewBuilder().NewEvent()
