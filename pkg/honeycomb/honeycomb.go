@@ -114,6 +114,8 @@ func (h *honeycombWriter) Write(b []byte) (int, error) {
 				data[k] = v
 			}
 			delete(data, "_msg")
+		} else {
+			data["parseError"] = err.Error()
 		}
 	}
 
