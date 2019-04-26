@@ -29,6 +29,9 @@ func TestJSONSplit(t *testing.T) {
 		{"simple", args{`{"a":1}`, false}, 7, `{"a":1}`, false},
 		{"nested", args{`{"a":{"b":17}}`, false}, 14, `{"a":{"b":17}}`, false},
 		{"indented", args{`  {"a":{"b":17}}`, false}, 16, `{"a":{"b":17}}`, false},
+		{"embedded quote", args{`{"a":"\"I am\", I said"}`, false}, 24, `{"a":"\"I am\", I said"}`, false},
+		{"unmatched nesting", args{`{"a":{"b":17}`, true}, 0, "", true},
+		{"unmatched quote", args{`{"a":"}`, true}, 0, "", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
