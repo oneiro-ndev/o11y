@@ -348,3 +348,34 @@ func BenchmarkCircularBuffer(b *testing.B) {
 		}
 	}
 }
+
+func TestCircularBufferResizeExplicit(t *testing.T) {
+	data := []byte("testing")
+	c := NewCircularBuffer(10)
+	c.Write(data)
+	assert.Equal(t, 10, c.Capacity())
+	assert.Equal(t, 7, c.Len())
+	c.resize(20)
+	readdata := make([]byte, c.Len())
+	n, err := c.Read(readdata)
+	assert.Nil(t, err)
+	assert.Equal(t, 7, n)
+	assert.Equal(t, data, readdata)
+}
+
+func TestCircularBufferResizeAuto(t *testing.T) {
+	data := []byte("ABC")
+	c := NewCircularBuffer(8)
+	// this is going to write 300 bytes total
+	for i := 0; i < 100; i++ {
+		n, err := c.Write(data)
+		assert.Equal(t, 3, n)
+		assert.Nil(t, err)
+	}
+	assert.Equal(t, 512, c.Capacity())
+	assert.Equal(t, 300, c.Len())
+	readdata := make([]byte, c.Len())
+	n, err := c.Read(readdata)
+	assert.Nil(t, err)
+	assert.Equal(t, 300, n)
+}

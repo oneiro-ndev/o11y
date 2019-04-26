@@ -2,33 +2,33 @@ package honeycomb
 
 import (
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"sync"
 )
 
-// CircularBuffer is an io.ReadWriter that implements a...you guessed it, circular
-// buffer of bytes. You set the buffer size, and you can write to it until it's full,
-// and then you can read from it until it's empty again. It's safe to use in concurrent
-// operations.
+// CircularBuffer is an io.ReadWriter that implements a...you guessed it,
+// circular buffer of bytes. You set the buffer size, and you can write to it
+// until it's full, and then you can read from it until it's empty again. It's
+// safe to use in concurrent operations.
 //
-// Its purpose is to provide a safe way to pass an io.Writer to a separate process for its
-// stdout or stderr, and to have a local goroutine reading and parsing the stream of data in
-// real time.
+// Its purpose is to provide a safe way to pass an io.Writer to a separate
+// process for its stdout or stderr, and to have a local goroutine reading and
+// parsing the stream of data in real time.
 //
-// The C member is a chan struct{} that receives a new value for every operation that changes
-// the buffer's length to a nonzero value (every successful nonempty Write and any partial Consume).
+// The C member is a chan struct{} that receives a new value for every operation
+// that changes the buffer's length to a nonzero value (every successful
+// nonempty Write and any partial Consume). In other words, listening to this
+// channel will tell you whenever there is something in the buffer to read.
+// However, redundant notifications will be dropped on the floor. So if you call
+// write 3 times but don't read from the channel until later, you'll only see a
+// single event. Calling Close() also closes this channel.
 //
 // The Peek operation is a read without advancing the read pointer. This can be
 // useful in parsing situations.
 //
-// Calling Close() prevents further writes, and after the entire input has been consumed, returns EOF
-// for further read operations.
-//
-// Once created, the size of a CircularBuffer can never be changed. The size of the buffer should be
-// larger than the largest single write you expect in one call to Write(), and twice that is
-// a good idea.
+// Calling Close() prevents further writes, and after the entire input has been
+// consumed, returns EOF for further read operations.
 type CircularBuffer struct {
 	C chan struct{}
 
@@ -45,9 +45,6 @@ func (c *CircularBuffer) String() string {
 	return fmt.Sprintf("%s index: %d   len: %d", hex.EncodeToString(c.buf), c.index, c.len)
 }
 
-// ErrNoRoom is the error returned when a Write doesn't have enough space to write the entire input.
-var ErrNoRoom = errors.New("insufficient capacity")
-
 // NewCircularBuffer builds a CircularBuffer of the specified capacity.
 func NewCircularBuffer(capacity int) *CircularBuffer {
 	return &CircularBuffer{
@@ -59,7 +56,8 @@ func NewCircularBuffer(capacity int) *CircularBuffer {
 }
 
 // Write implements io.Writer for CircularBuffer. Note that if all of p cannot be written to the
-// buffer, no bytes are written, the buffer is not modified at all and the call returns ErrNoRoom.
+// buffer as it stands, the buffer's capacity is grown. This call will return io.EOF if
+// Close() has been called; otherwise it will only error if the buffer cannot be expanded.
 func (c *CircularBuffer) Write(p []byte) (int, error) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
@@ -67,7 +65,10 @@ func (c *CircularBuffer) Write(p []byte) (int, error) {
 		return 0, io.EOF
 	}
 	if len(p) > len(c.buf)-c.len {
-		return 0, ErrNoRoom
+		_, err := c.resize(len(p) + c.len)
+		if err != nil {
+			return 0, err
+		}
 	}
 
 	startWritingAt := (c.index + c.len) % len(c.buf)
@@ -87,13 +88,15 @@ func (c *CircularBuffer) Write(p []byte) (int, error) {
 }
 
 // Read implements io.Reader for CircularBuffer. It is the equivalent of calling
-// Peek() followed by Consume().
+// Peek() followed by Consume(), but is locked for the entire time.
 func (c *CircularBuffer) Read(p []byte) (int, error) {
-	n, err := c.Peek(p)
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	n, err := c.peek(p)
 	if err != nil {
 		return n, err
 	}
-	return c.Consume(n), nil
+	return c.consume(n), nil
 }
 
 // Peek retrieves the leading bytes from the buffer but does not move the index
@@ -102,6 +105,72 @@ func (c *CircularBuffer) Read(p []byte) (int, error) {
 func (c *CircularBuffer) Peek(p []byte) (int, error) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
+	return c.peek(p)
+}
+
+// Consume advances the index pointer by n bytes, or by the current length of the input,
+// whichever is shorter. It returns the number of bytes actually advanced.
+func (c *CircularBuffer) Consume(n int) int {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	return c.consume(n)
+}
+
+// Capacity returns the capacity of the buffer; this is the value set
+// at initialization.
+func (c *CircularBuffer) Capacity() int {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	return len(c.buf)
+}
+
+// Len returns the current length of the buffer.
+func (c *CircularBuffer) Len() int {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	return c.len
+}
+
+// Close implements io.Closer for CircularBuffer
+func (c *CircularBuffer) Close() error {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	c.closed = true
+	close(c.C)
+	return nil
+}
+
+// Private API below here
+// Note to maintainers:
+// all public methods (except Listen) must use a mutex, and no private ones should.
+
+func (c *CircularBuffer) addLen(n int) {
+	c.len += n
+	// when we set the length, if it's nonzero, send the value on
+	// the channel, but don't block if the channel is already full
+	if c.len != 0 && !c.closed {
+		select {
+		case c.C <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// consume advances the index pointer by n bytes, or by the current length of the input,
+// whichever is shorter. It returns the number of bytes actually advanced.
+// It does not lock.
+func (c *CircularBuffer) consume(n int) int {
+	if n > c.len {
+		n = c.len
+	}
+	c.index = (c.index + n) % len(c.buf)
+	c.addLen(-n)
+	return n
+}
+
+// peek retrieves the contents of the circular buffer into
+// []byte; it does not lock or change any pointers.
+func (c *CircularBuffer) peek(p []byte) (int, error) {
 	if c.len == 0 && c.closed {
 		return 0, io.EOF
 	}
@@ -120,61 +189,28 @@ func (c *CircularBuffer) Peek(p []byte) (int, error) {
 	return n, nil
 }
 
-// Consume advances the index pointer by n bytes, or by the current length of the input,
-// whichever is shorter. It returns the number of bytes actually advanced.
-func (c *CircularBuffer) Consume(n int) int {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-	if n > c.len {
-		n = c.len
+// This transparently resizes the buffer to hold at least minSize bytes.
+// In general, we double the buffer size each time unless it's already bigger
+// than 8K, in which case we only increase it by 25%.
+// But if minSize is bigger than that number, we'll use minSize instead.
+func (c *CircularBuffer) resize(minSize int) (int, error) {
+	// first figure out how big it should be
+	quarters := 8
+	if len(c.buf) > 8192 {
+		quarters = 5
 	}
-	c.index = (c.index + n) % len(c.buf)
-	c.addLen(-n)
-	return n
-}
-
-// Capacity returns the capacity of the buffer; this is the value set
-// at initialization.
-func (c *CircularBuffer) Capacity() int {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-	return len(c.buf)
-}
-
-// Listen returns a channel that will receive an event whenever the c.Len() changes
-// and the result is nonzero. In other words, listening to this channel will tell
-// you whenever there is something in the buffer to read. However, redundant notifications
-// will be dropped on the floor. So if you call write 3 times but don't read from the
-// channel until later, you'll only see a single event.
-// Calling Close() also closes this channel.
-func (c *CircularBuffer) Listen() chan struct{} {
-	return c.C
-}
-
-func (c *CircularBuffer) addLen(n int) {
-	c.len += n
-	// when we set the length, if it's nonzero, send the value on
-	// the channel, but don't block if the channel is already full
-	if c.len != 0 && !c.closed {
-		select {
-		case c.C <- struct{}{}:
-		default:
-		}
+	newSize := len(c.buf) * quarters / 4
+	if minSize > newSize {
+		newSize = minSize
 	}
-}
-
-// Len returns the current length of the buffer.
-func (c *CircularBuffer) Len() int {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-	return c.len
-}
-
-// Close implements io.Closer for CircularBuffer
-func (c *CircularBuffer) Close() error {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-	c.closed = true
-	close(c.C)
-	return nil
+	newbuf := make([]byte, newSize)
+	_, err := c.peek(newbuf)
+	if err != nil {
+		// we didn't change anything
+		return len(c.buf), err
+	}
+	// we now have a new, bigger buffer with all the contents in it
+	c.buf = newbuf
+	c.index = 0
+	return len(c.buf), nil
 }
