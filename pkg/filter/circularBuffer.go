@@ -1,4 +1,4 @@
-package honeycomb
+package filter
 
 import (
 	"encoding/hex"
@@ -45,7 +45,9 @@ func (c *CircularBuffer) String() string {
 	return fmt.Sprintf("%s index: %d   len: %d", hex.EncodeToString(c.buf), c.index, c.len)
 }
 
-// NewCircularBuffer builds a CircularBuffer of the specified capacity.
+// NewCircularBuffer builds a CircularBuffer of the specified initial capacity.
+// The buffer will grow if necessary to accommodate Write() calls. It never
+// shrinks.
 func NewCircularBuffer(capacity int) *CircularBuffer {
 	return &CircularBuffer{
 		C:     make(chan struct{}, 1),

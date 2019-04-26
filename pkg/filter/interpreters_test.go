@@ -1,4 +1,4 @@
-package honeycomb
+package filter
 
 import (
 	"encoding/hex"
