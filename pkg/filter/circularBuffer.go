@@ -79,13 +79,12 @@ func (c *CircularBuffer) Write(p []byte) (int, error) {
 	if len(p) < leftBeforeEnd {
 		// it all fits in before it's time to wrap
 		n = copy(c.buf[startWritingAt:], p)
-		c.addLen(len(p))
 	} else {
 		// it didn't all fit in before we have to wrap
 		n = copy(c.buf[startWritingAt:], p[:leftBeforeEnd])
 		n += copy(c.buf[:startWritingAt], p[leftBeforeEnd:])
-		c.addLen(len(p))
 	}
+	c.addLen(len(p))
 	return n, nil
 }
 
@@ -144,7 +143,7 @@ func (c *CircularBuffer) Close() error {
 
 // Private API below here
 // Note to maintainers:
-// all public methods (except Listen) must use a mutex, and no private ones should.
+// all public methods must use a mutex, and no private ones should.
 
 func (c *CircularBuffer) addLen(n int) {
 	c.len += n

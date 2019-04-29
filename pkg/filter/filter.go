@@ -24,10 +24,11 @@ var _ io.Writer = (*Filter)(nil)
 // NewFilter accepts a SplitFunc, an output function, and some interpreters and constructs a Filter.
 // It spawns a goroutine that uses the splitter to read tokens from the circular buffer,
 // and then calls interpreters on the token.
-func NewFilter(splitter bufio.SplitFunc, output func(map[string]interface{}), terps ...Interpreter) *Filter {
+// It accepts a done channel (which may be nil), which will shut down its goroutine when closed.
+func NewFilter(splitter bufio.SplitFunc, output func(map[string]interface{}), done chan struct{}, terps ...Interpreter) *Filter {
 	fp := &Filter{
 		Interpreters: terps,
-		cbuf:         NewCircularBuffer(4000),
+		cbuf:         NewCircularBuffer(4096),
 	}
 
 	go func() {
@@ -36,6 +37,9 @@ func NewFilter(splitter bufio.SplitFunc, output func(map[string]interface{}), te
 
 		for {
 			select {
+			case <-done:
+				// just shut down
+				return
 			case <-fp.cbuf.C:
 				if !scanner.Scan() {
 					// if the scanner fails, emit a standard message to the output
@@ -65,12 +69,14 @@ func (f *Filter) Write(b []byte) (int, error) {
 
 // NewJSONFilter is a convenience function to construct a Filter that uses a JSON splitter,
 // for processes that are known to emit a stream of JSON objects.
-func NewJSONFilter(output func(map[string]interface{}), terps ...Interpreter) *Filter {
-	return NewFilter(JSONSplit, output, terps...)
+// It accepts a done channel (which may be nil), which will shut down its goroutine when closed.
+func NewJSONFilter(output func(map[string]interface{}), done chan struct{}, terps ...Interpreter) *Filter {
+	return NewFilter(JSONSplit, output, done, terps...)
 }
 
 // NewLineFilter is a convenience function to construct a Filter that uses a line splitter,
 // for processes that are known to emit lines of text.
-func NewLineFilter(output func(map[string]interface{}), terps ...Interpreter) *Filter {
-	return NewFilter(bufio.ScanLines, output, terps...)
+// It accepts a done channel (which may be nil), which will shut down its goroutine when closed.
+func NewLineFilter(output func(map[string]interface{}), done chan struct{}, terps ...Interpreter) *Filter {
+	return NewFilter(bufio.ScanLines, output, done, terps...)
 }

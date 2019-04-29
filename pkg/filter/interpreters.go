@@ -46,7 +46,6 @@ func (JSONInterpreter) Interpret(data []byte,
 // the field _other to the result. We're assuming since this was intended
 // to be a log entry that the data is mostly string-like, but there is
 // the option to run an Escaper over it so that we don't try to print gibberish.
-// Interpret implements Interpreter for LastChanceInterpreter
 type LastChanceInterpreter struct {
 	Escaper func([]byte) string
 }
@@ -103,7 +102,9 @@ func NewTendermintInterpreter() Interpreter {
 var _ Interpreter = (*TendermintInterpreter)(nil)
 
 func findFields(v string, fields map[string]interface{}) map[string]interface{} {
-	// pattern for matching lines that have key: value
+	// pattern for matching lines that have Key: value as long as that line doesn't end in curly brace.
+	// This pattern is specific to some odd data that Tendermint shoves into a single log message
+	// without using the JSON logging. It's not intended to be a general-purpose key/value matcher.
 	lpat := regexp.MustCompile(`^([A-Z][A-Za-z0-9]+):[ \t]*(.*[^{])$`)
 	// pattern for splitting up lines including trailing and leading whitespace
 	spat := regexp.MustCompile(`[ \t]*\n[ \t]*`)

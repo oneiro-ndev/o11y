@@ -64,7 +64,7 @@ func buildJSON(n int) []byte {
 	return j
 }
 
-// THe set of benchmarks below are tests of whether it's viable to send output from the writer to a channel
+// The set of benchmarks below are tests of whether it's viable to send output from the writer to a channel
 // and then read the channel in a separate goroutine.
 // We compared writing one byte a time to the channel vs writing a slice of 100 bytes to a channel.
 // The slice is about 15-20x faster, and the buffered slice is a couple of times faster still, so

@@ -53,7 +53,8 @@ func TestJSONFilter_Basic(t *testing.T) {
 	}
 
 	// create an object that emits chunks of json
-	var w io.Writer = NewJSONFilter(outputter, JSONInterpreter{})
+	done := make(chan struct{})
+	var w io.Writer = NewJSONFilter(outputter, done, JSONInterpreter{})
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	go func() {
@@ -68,6 +69,7 @@ func TestJSONFilter_Basic(t *testing.T) {
 	}()
 
 	wg.Wait()
+	close(done)
 	mutex.Lock()
 	defer mutex.Unlock()
 	assert.Equal(t, 10, len(ma))
