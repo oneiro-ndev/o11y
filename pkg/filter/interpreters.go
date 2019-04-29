@@ -105,7 +105,7 @@ var _ Interpreter = (*TendermintInterpreter)(nil)
 func findFields(v string, fields map[string]interface{}) map[string]interface{} {
 	// pattern for matching lines that have key: value
 	lpat := regexp.MustCompile(`^([A-Z][A-Za-z0-9]+):[ \t]*(.*[^{])$`)
-	// pattern for splitting up lines
+	// pattern for splitting up lines including trailing and leading whitespace
 	spat := regexp.MustCompile(`[ \t]*\n[ \t]*`)
 	ss := spat.Split(v, -1)
 	for _, s := range ss {

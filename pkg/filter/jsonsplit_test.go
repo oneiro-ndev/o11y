@@ -22,16 +22,14 @@ func TestJSONSplit(t *testing.T) {
 		wantErr     bool
 	}{
 		{"empty EOF", args{"", true}, 0, "", false},
-		{"empty json obj EOF", args{"{}", true}, 2, "{}", false},
 		{"simple EOF", args{`{"a":1}`, true}, 7, `{"a":1}`, false},
 		{"empty", args{"", false}, 0, "", false},
-		{"empty json obj", args{"{}", false}, 2, "{}", false},
 		{"simple", args{`{"a":1}`, false}, 7, `{"a":1}`, false},
 		{"nested", args{`{"a":{"b":17}}`, false}, 14, `{"a":{"b":17}}`, false},
 		{"indented", args{`  {"a":{"b":17}}`, false}, 16, `{"a":{"b":17}}`, false},
 		{"embedded quote", args{`{"a":"\"I am\", I said"}`, false}, 24, `{"a":"\"I am\", I said"}`, false},
-		{"unmatched nesting", args{`{"a":{"b":17}`, true}, 0, "", true},
-		{"unmatched quote", args{`{"a":"}`, true}, 0, "", true},
+		{"unmatched nesting", args{`{"a":{"b":17}`, true}, 13, `{"_msg": "{\"a\":{\"b\":17}"}`, false},
+		{"unmatched quote", args{`{"a":"}`, true}, 7, `{"_msg": "{\"a\":\"}"}`, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
